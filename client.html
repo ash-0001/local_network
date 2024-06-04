@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+    }
+    #messageInput, #fileInput {
+      width: 300px;
+      padding: 10px;
+      margin-right: 10px;
+      background-color: #333333;
+      color: #ffffff;
+      border: 1px solid #444444;
+      border-radius: 4px;
+    }
+    #sendButton, #uploadButton {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: #ffffff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #sendButton:hover, #uploadButton:hover {
+      background-color: #45a049;
+    }
+    #messages {
+      list-style-type: none;
+      padding: 0;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 20px;
+      background-color: #1e1e1e;
+      border: 1px solid #444444;
+      border-radius: 4px;
+    }
+    #messages li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 10px;
+      margin-bottom: 5px;
+      background-color: #333333;
+      border-radius: 4px;
+    }
+    .actionButton {
+      padding: 5px 10px;
+      margin-left: 10px;
+      cursor: pointer;
+      background-color: #4CAF50;
+      color: #ffffff;
+      border: none;
+      border-radius: 4px;
+    }
+    .actionButton:hover {
+      background-color: #45a049;
+    }
+    #notification {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #4CAF50;
+      color: #ffffff;
+      padding: 10px 20px;
+      border-radius: 4px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>WebSocket Chat</h1>
+  <input type="text" id="messageInput" placeholder="Type a message...">
+  <button id="sendButton">Send</button>
+  <input type="file" id="fileInput">
+  <button id="uploadButton">Upload</button>
+  <ul id="messages"></ul>
+  <div id="notification">Message copied to clipboard!</div>
+
+  <script>
+    let ws;
+
+    function initializeWebSocket() {
+      const host = window.location.hostname || 'localhost'; // Use the correct host
+      ws = new WebSocket(`ws://${host}:8080`);
+
+      ws.onopen = () => {
+        console.log('Connected to the server');
+      };
+
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        console.log('Received message:', message); // Log received message
+        displayMessage(message);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket Error:', error);
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket connection closed');
+      };
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('messageInput');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = {
+          type: 'text',
+          content: input.value
+        };
+        console.log('Sending message:', message); // Log sending message
+        ws.send(JSON.stringify(message));
+        input.value = '';
+      } else {
+        console.error('WebSocket is not open.');
+      }
+    }
+
+    function uploadFile() {
+      const fileInput = document.getElementById('fileInput');
+      const file = fileInput.files[0];
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        fetch(`http://192.168.1.5:8080/upload`, {
+          method: 'POST',
+          body: formData
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.text();
+        })
+        .then(data => {
+          console.log('File uploaded successfully:', data);
+        })
+        .catch(error => {
+          console.error('Error uploading file:', error);
+        });
+      }
+    }
+
+    function displayMessage(message) {
+      const messages = document.getElementById('messages');
+      const messageItem = document.createElement('li');
+      
+      if (message.type === 'text') {
+        messageItem.textContent = message.content;
+
+        const copyButton = document.createElement('button');
+        copyButton.textContent = 'Copy';
+        copyButton.className = 'actionButton';
+        copyButton.onclick = function() {
+          navigator.clipboard.writeText(message.content).then(() => {
+            showNotification('Message copied to clipboard!');
+          }).catch((err) => {
+            console.error('Could not copy text: ', err);
+          });
+        };
+
+        const downloadButton = document.createElement('button');
+        downloadButton.textContent = 'Download';
+        downloadButton.className = 'actionButton';
+        downloadButton.onclick = function() {
+          const blob = new Blob([message.content], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'message.txt';
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        messageItem.appendChild(copyButton);
+        messageItem.appendChild(downloadButton);
+      } else if (message.type === 'file') {
+        const link = document.createElement('a');
+        link.href = `http://192.168.1.5:8080/uploads/${message.filename}`;
+        link.textContent = message.originalname;
+        link.target = '_blank';
+
+        const downloadButton = document.createElement('button');
+        downloadButton.textContent = 'Download';
+        downloadButton.className = 'actionButton';
+        downloadButton.onclick = function() {
+          const a = document.createElement('a');
+          a.href = `http://192.168.1.5:8080/uploads/${message.filename}`;
+          a.download = message.originalname;
+          a.click();
+        };
+
+        messageItem.appendChild(link);
+        messageItem.appendChild(downloadButton);
+      }
+
+      messages.appendChild(messageItem);
+    }
+
+    function showNotification(message) {
+      const notification = document.getElementById('notification');
+      notification.textContent = message;
+      notification.style.display = 'block';
+      setTimeout(() => {
+        notification.style.display = 'none';
+      }, 2000);
+    }
+
+    document.getElementById('sendButton').onclick = sendMessage;
+    document.getElementById('uploadButton').onclick = uploadFile;
+
+    document.getElementById('messageInput').addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') {
+        sendMessage();
+      }
+    });
+
+    window.onload = initializeWebSocket;
+  </script>
+</body>
+</html>
